@@ -1,0 +1,41 @@
+env: sc2custom
+scenario: "1-5m_symmetric"
+
+env_args:
+  entity_scheme: True
+  continuing_episode: False
+  episode_limit: 150
+  difficulty: "7"
+  game_version: null
+  move_amount: 2
+  random_tags: True
+  obs_all_health: True
+  obs_instead_of_state: False
+  obs_own_health: True
+  obs_last_action: False
+  obs_pathing_grid: False
+  obs_terrain_height: False
+  obs_timestep_number: False
+  state_last_action: True
+  sight_range: 9
+  reward_death_value: 10
+  reward_defeat: 0
+  reward_negative_scale: 0.5
+  reward_only_positive: True
+  reward_scale: True
+  reward_scale_rate: 20
+  reward_sparse: False
+  reward_win: 200
+  replay_dir: ""
+  replay_prefix: ""
+  state_timestep_number: False
+  step_mul: 8
+  heuristic_ai: False
+  debug: False
+
+test_nepisode: 160
+test_interval: 50000
+log_interval: 10000
+runner_log_interval: 10000
+learner_log_interval: 10000
+t_max: 10000000
