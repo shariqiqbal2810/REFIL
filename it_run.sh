@@ -13,5 +13,5 @@ docker run \
     --net host \
     --user $(id -u) \
     -v `pwd`:/REFIL \
-    -it REFIL \
+    -it refil \
     ${@:2}

@@ -1,4 +1,4 @@
 #!/bin/bash
 
-echo 'Building Dockerfile with image name REFIL'
-docker build -t REFIL .
+echo 'Building Dockerfile with image name refil'
+docker build -t refil .

@@ -11,5 +11,5 @@ docker run \
     --name $name \
     --user $(id -u) \
     -v `pwd`:/REFIL \
-    -t REFIL \
+    -t refil \
     ${@:2}
