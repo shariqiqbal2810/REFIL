@@ -11,5 +11,6 @@ docker run \
     --name $name \
     --user $(id -u) \
     -v `pwd`:/REFIL \
+    --entrypoint /usr/bin/python3.6 \
     -t refil \
     ${@:2}

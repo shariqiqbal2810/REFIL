@@ -27,7 +27,7 @@ Run an `ALGORITHM` from the folder `src/config/algs`
 in an `ENVIRONMENT` from the folder `src/config/envs`
 on a specific `GPU` using some `PARAMETERS`:
 ```shell
-./run.sh <GPU> python3 src/main.py --env-config=<ENVIRONMENT> --config=<ALGORITHM> with <PARAMETERS>
+./run.sh <GPU> src/main.py --env-config=<ENVIRONMENT> --config=<ALGORITHM> with <PARAMETERS>
 ```
 
 Possible environments are:

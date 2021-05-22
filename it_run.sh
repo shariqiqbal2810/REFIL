@@ -13,5 +13,6 @@ docker run \
     --net host \
     --user $(id -u) \
     -v `pwd`:/REFIL \
+    --entrypoint /usr/bin/python3.6 \
     -it refil \
     ${@:2}
