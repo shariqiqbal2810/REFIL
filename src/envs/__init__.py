@@ -2,9 +2,7 @@ from functools import partial
 
 from .multiagentenv import MultiAgentEnv
 from .starcraft2 import StarCraft2Env, StarCraft2CustomEnv
-from .firefighters import FireFightersEnv
-
-from .firefighters import scenarios as ff_scenarios
+from .group_matching import GroupMatching
 from .starcraft2 import custom_scenario_registry as sc_scenarios
 
 
@@ -17,8 +15,7 @@ def env_fn(env, **kwargs) -> MultiAgentEnv: # TODO: this may be a more complex f
 REGISTRY = {}
 REGISTRY["sc2"] = partial(env_fn, env=StarCraft2Env)
 REGISTRY["sc2custom"] = partial(env_fn, env=StarCraft2CustomEnv)
-REGISTRY["firefighters"] = partial(env_fn, FireFightersEnv)
+REGISTRY["group_matching"] = partial(env_fn, env=GroupMatching)
 
 s_REGISTRY = {}
-s_REGISTRY.update(ff_scenarios)
 s_REGISTRY.update(sc_scenarios)

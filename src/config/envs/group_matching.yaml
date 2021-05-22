@@ -1,0 +1,17 @@
+env: group_matching
+
+env_args:
+  entity_scheme: True
+  n_agents: 8
+  n_states: 6
+  n_groups: 2
+  rand_trans: 0.1
+  episode_limit: 50
+  fixed_scen: False
+
+test_nepisode: 80
+test_interval: 10000
+log_interval: 2000
+runner_log_interval: 2000
+learner_log_interval: 2000
+t_max: 1000000

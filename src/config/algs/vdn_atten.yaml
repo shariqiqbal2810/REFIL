@@ -22,11 +22,10 @@ agent_output_type: "q"
 learner: "q_learner"
 double_q: True
 mixer: "vdn"
-mix_imagined: False
 agent: "entity_attend_rnn"
 rnn_hidden_dim: 64
 mac: "entity_mac"
 attn_embed_dim: 128
 attn_n_heads: 4
 
-name: "atten_vdn"
+name: "vdn_atten"

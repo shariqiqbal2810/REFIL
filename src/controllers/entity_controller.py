@@ -25,6 +25,8 @@ class EntityMAC(BasicMAC):
                     batch["actions_onehot"][:, slice(t.start - 1, t.stop - 1)])
             entities.append(ent_acs)
         entities = th.cat(entities, dim=3)
+        if self.args.gt_mask_avail:
+            return (entities, batch["obs_mask"][:, t], batch["entity_mask"][:, t], batch["gt_mask"][:, t])
         return (entities, batch["obs_mask"][:, t], batch["entity_mask"][:, t])
 
     def _get_input_shape(self, scheme):

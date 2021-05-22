@@ -1,5 +1,5 @@
-# AI-QMIX
-Code for [*AI-QMIX: Attention and Imagination for Dynamic Multi-Agent Reinforcement Learning*](https://arxiv.org/abs/2006.04222) (Iqbal et al., arXiv 2006.04222)
+# REFIL
+Code for [*Randomized Entity-wise Factorization for Multi-Agent Reinforcement Learning*](https://arxiv.org/abs/2006.04222) (Iqbal et al., ICML 2021)
 
 This codebase is built on top of the [PyMARL](https://github.com/oxwhirl/pymarl) framework for multi-agent reinforcement learning algorithms.
 
@@ -10,68 +10,63 @@ This codebase is built on top of the [PyMARL](https://github.com/oxwhirl/pymarl)
 ## Setup instructions
 
 Build the Dockerfile using 
-```
+```shell
 cd docker
 ./build.sh
 ```
 
 Set up StarCraft II.
 
-```
+```shell
 ./install_sc2.sh
 ```
 
 ## Run an experiment 
 
-Run an ALGORITHM from the folder `src/config/algs`
-in an ENVIRONMENT from the folder `src/config/envs`
-on a specific GPU using some PARAMETERS:
-```
+Run an `ALGORITHM` from the folder `src/config/algs`
+in an `ENVIRONMENT` from the folder `src/config/envs`
+on a specific `GPU` using some `PARAMETERS`:
+```shell
 ./run.sh <GPU> python3 src/main.py --env-config=<ENVIRONMENT> --config=<ALGORITHM> with <PARAMETERS>
 ```
 
-Add the `--no-mongo` flag before the "with" statement if you do not have a MongoDB database set up to log results (the results will still be logged in a local file).
-
 Possible environments are:
-- `firefighters`: SaveTheCity environment from the paper
+- `group_matching`: Group Matching environment from the paper
 - `sc2custom`: StarCraft environment from the paper
 
-For each environment you can specify the set of scenarios to train/test on by including the parameter `with scenario=<scenario_set_name>`.
-Here are the possible scenario sets for each environment:
-- SaveTheCity
-    - '2-8a_2-8b_05': train on 5% of the possible scenarios
-    - '2-8a_2-8b_25': train on 25% of the possible scenarios
-    - '2-8a_2-8b_45': train on 45% of the possible scenarios
-    - '2-8a_2-8b_65': train on 65% of the possible scenarios
-    - '2-8a_2-8b_85': train on 85% of the possible scenarios
-    - '2-8a_2-8b_sim_Q1': train on the quartile of scenarios least similar to the testing ones
-    - '2-8a_2-8b_sim_Q2': train on the quartile of scenarios 2nd least similar to the testing ones
-    - '2-8a_2-8b_sim_Q3': train on the quartile of scenarios 2nd most similar to the testing ones
-    - '2-8a_2-8b_sim_Q4': train on the quartile of scenarios most similar to the testing ones
-- StarCraft
-    - '3-8sz_symmetric'
-    - '3-8MMM_symmetric'
-
-The testing scenarios are the same on all SaveTheCity scenario set
+For StarCraft you need to specify the set of tasks to train on by including the parameter `scenario=<scenario_set_name>`.
+Here are the possible scenario sets:
+Included in the paper:
+    - `3-8sz_symmetric`
+    - `3-8MMM_symmetric`
+    - `3-8csz_symmetric`
+Debugging/Additional:
+    - `3-8m_symmetric`
+    - `6-11m_mandown`
 
 Possible algorithms are:
-- 'imagine_qmix': AI-QMIX (our method)
-- 'atten_qmix': A-QMIX
-- 'imagine_vdn': AI-VDN
-- 'atten_vdn': A-VDN
+- `refil`: REFIL (our method)
+- `refil_group_matching`: REFIL w/ hyperparameters for Group Matching game
+- `qmix_atten`: QMIX (Attention)
+- `qmix_atten_group_matching`: QMIX (Attention) w/ hyperparameters for Group Matching game
+- `refil_vdn`: REFIL (VDN)
+- `vdn_atten`: VDN (Attention)
+
+For group matching oracle methods, include the following parameters while selecting `refil_group_matching` as the algorithm:
+- REFIL (Fixed Oracle): `train_gt_factors=True`
+- REFIL (Randomized Oracle): `train_rand_gt_factors=True`
 
 ## Citing our work
 
 If you use this repo in your work, please consider citing the corresponding paper:
 
-```
-@article{iqbal2020ai,
-  title={AI-QMIX: Attention and Imagination for Dynamic Multi-Agent Reinforcement Learning},
+```bibtex
+@InProceedings{iqbal2021refil,
+  title={Randomized Entity-wise Factorization for Multi-Agent Reinforcement Learning},
   author={Iqbal, Shariq and de Witt, Christian A Schroeder and Peng, Bei and B{\"o}hmer, Wendelin and Whiteson, Shimon and Sha, Fei},
-  journal={arXiv preprint arXiv:2006.04222},
-  year={2020}
+  booktitle =    {Proceedings of the 38th International Conference on Machine Learning},
+  year =     {2021},
+  series =   {Proceedings of Machine Learning Research},
+  publisher =    {PMLR},
 }
 ```
-
-
-

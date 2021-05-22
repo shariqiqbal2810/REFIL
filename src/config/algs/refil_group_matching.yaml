@@ -4,36 +4,34 @@
 action_selector: "epsilon_greedy"
 epsilon_start: 1.0
 epsilon_finish: 0.05
-epsilon_anneal_time: 500000
+epsilon_anneal_time: 5000
 
 runner: "parallel"
 batch_size_run: 8
 training_iters: 8
 
-entity_last_action: True # Include the user-controlled agents' last actions (one_hot) in their entities
+entity_last_action: False # Include the user-controlled agents' last actions (one_hot) in their entities
 
-buffer_size: 5000
+buffer_size: 2000
 
 # update the target network every {} episodes
 target_update_interval: 200
+
+test_gt_factors: True  # record proportion of q_tot coming from ground truth in-group
 
 # use the Q_Learner to train
 agent_output_type: "q"
 learner: "q_learner"
 double_q: True
-mixer: "flex_qmix"
+mixer: "lin_flex_qmix"
 mixing_embed_dim: 32
-hypernet_embed: 128
-attention_hyper: True
+hypernet_embed: 64
 softmax_mixing_weights: True
-mix_imagined: True
-agent: "imagine_entity_attend_rnn"
+agent: "imagine_entity_attend_ff"
 rnn_hidden_dim: 64
-skip_connections: False
-hyper_initialization_nonzeros: 0
 mac: "entity_mac"
-attn_embed_dim: 128
+attn_embed_dim: 64
 attn_n_heads: 4
 lmbda: 0.5
 
-name: "imagine_qmix"
+name: "refil"

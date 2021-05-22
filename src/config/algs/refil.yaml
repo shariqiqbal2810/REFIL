@@ -21,8 +21,10 @@ target_update_interval: 200
 agent_output_type: "q"
 learner: "q_learner"
 double_q: True
-mixer: "vdn"
-mix_imagined: False
+mixer: "flex_qmix"
+mixing_embed_dim: 32
+hypernet_embed: 128
+softmax_mixing_weights: True
 agent: "imagine_entity_attend_rnn"
 rnn_hidden_dim: 64
 mac: "entity_mac"
@@ -30,4 +32,4 @@ attn_embed_dim: 128
 attn_n_heads: 4
 lmbda: 0.5
 
-name: "imagine_vdn"
+name: "refil"

@@ -19,7 +19,7 @@ class ParallelRunner:
         # TODO: Add a delay when making sc2 envs
         self.parent_conns, self.worker_conns = zip(*[Pipe() for _ in range(self.batch_size)])
         env_fn = env_REGISTRY[self.args.env]
-        if 'sc2' or 'firefighters' in self.args.env:
+        if ('sc2' in self.args.env) or ('group_matching' in self.args.env):
             base_seed = self.args.env_args.pop('seed')
             self.ps = [Process(target=env_worker, args=(worker_conn, self.args.entity_scheme,
                                                         CloudpickleWrapper(partial(env_fn, seed=base_seed + rank,
@@ -36,7 +36,7 @@ class ParallelRunner:
 
         # TODO: Close stuff if appropriate
 
-        self.parent_conns[0].send(("get_env_info", None))
+        self.parent_conns[0].send(("get_env_info", args))
         self.env_info = self.parent_conns[0].recv()
         self.episode_limit = self.env_info["episode_limit"]
 
@@ -262,9 +262,16 @@ def env_worker(remote, entity_scheme, env_fn):
                 "info": env_info
             }
             if entity_scheme:
-                obs_mask, entity_mask = env.get_masks()
+                masks = env.get_masks()
+                if len(masks) == 2:
+                    obs_mask, entity_mask = masks
+                    gt_mask = None
+                else:
+                    obs_mask, entity_mask, gt_mask = masks
                 send_dict["obs_mask"] = obs_mask
                 send_dict["entity_mask"] = entity_mask
+                if gt_mask is not None:
+                    send_dict["gt_mask"] = gt_mask
                 send_dict["entities"] = env.get_entities()
             else:
                 # Data for the next timestep needed to pick an action
@@ -274,13 +281,21 @@ def env_worker(remote, entity_scheme, env_fn):
         elif cmd == "reset":
             env.reset(**data)
             if entity_scheme:
-                obs_mask, entity_mask = env.get_masks()
-                remote.send({
+                masks = env.get_masks()
+                if len(masks) == 2:
+                    obs_mask, entity_mask = masks
+                    gt_mask = None
+                else:
+                    obs_mask, entity_mask, gt_mask = masks
+                send_dict = {
                     "entities": env.get_entities(),
                     "avail_actions": env.get_avail_actions(),
                     "obs_mask": obs_mask,
                     "entity_mask": entity_mask
-                })
+                }
+                if gt_mask is not None:
+                    send_dict["gt_mask"] = gt_mask
+                remote.send(send_dict)
             else:
                 remote.send({
                     "state": env.get_state(),
@@ -292,7 +307,7 @@ def env_worker(remote, entity_scheme, env_fn):
             remote.close()
             break
         elif cmd == "get_env_info":
-            remote.send(env.get_env_info())
+            remote.send(env.get_env_info(data))
         elif cmd == "get_stats":
             remote.send(env.get_stats())
         # TODO: unused now?

@@ -12,7 +12,7 @@ class EpisodeRunner:
         self.batch_size = self.args.batch_size_run
         assert self.batch_size == 1
 
-        if 'sc2' or 'firefighters' in self.args.env:
+        if ('sc2' in self.args.env) or ('group_matching' in self.args.env):
             self.env = env_REGISTRY[self.args.env](**self.args.env_args)
         else:
             self.env = env_REGISTRY[self.args.env](env_args=self.args.env_args, args=args)
@@ -36,7 +36,7 @@ class EpisodeRunner:
         self.mac = mac
 
     def get_env_info(self):
-        return self.env.get_env_info()
+        return self.env.get_env_info(self.args)
 
     def save_replay(self):
         self.env.save_replay()
@@ -51,13 +51,20 @@ class EpisodeRunner:
 
     def _get_pre_transition_data(self):
         if self.args.entity_scheme:
-            obs_mask, entity_mask = self.env.get_masks()
+            masks = self.env.get_masks()
+            if len(masks) == 2:
+                obs_mask, entity_mask = masks
+                gt_mask = None
+            else:
+                obs_mask, entity_mask, gt_mask = masks
             pre_transition_data = {
                 "entities": [self.env.get_entities()],
                 "obs_mask": [obs_mask],
                 "entity_mask": [entity_mask],
                 "avail_actions": [self.env.get_avail_actions()]
             }
+            if gt_mask is not None:
+                pre_transition_data["gt_mask"] = gt_mask
         else:
             pre_transition_data = {
                 "state": [self.env.get_state()],

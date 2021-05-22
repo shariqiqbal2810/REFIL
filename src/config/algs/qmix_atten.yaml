@@ -24,16 +24,12 @@ double_q: True
 mixer: "flex_qmix"
 mixing_embed_dim: 32
 hypernet_embed: 128
-attention_hyper: True
 softmax_mixing_weights: True
-mix_imagined: False
 agent: "entity_attend_rnn"
 rnn_hidden_dim: 64
-skip_connections: False
-hyper_initialization_nonzeros: 0
 mac: "entity_mac"
 attn_embed_dim: 128
 attn_n_heads: 4
 lmbda: 0.5
 
-name: "atten_qmix"
+name: "qmix_atten"

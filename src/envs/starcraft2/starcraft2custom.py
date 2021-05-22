@@ -24,6 +24,10 @@ from s2clientprotocol import sc2api_pb2 as sc_pb
 from s2clientprotocol import raw_pb2 as r_pb
 from s2clientprotocol import debug_pb2 as d_pb
 
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+from matplotlib.figure import Figure
+
 difficulties = {
     "1": sc_pb.VeryEasy,
     "2": sc_pb.Easy,
@@ -43,6 +47,17 @@ actions = {
     "stop": 4,  # target: None
     "heal": 386,  # Unit
 }
+
+# generated from seaborn: sns.color_palette('husl', n_colors=8), so we don't have to install the package in the container
+color_palette = [(0.9677975592919913, 0.44127456009157356, 0.5358103155058701),
+                 (0.8087954113106306, 0.5634700050056693, 0.19502642696727285),
+                 (0.5920891529639701, 0.6418467016378244, 0.1935069134991043),
+                 (0.19783576093349015, 0.6955516966063037, 0.3995301037444499),
+                 (0.21044753832183283, 0.6773105080456748, 0.6433941168468681),
+                 (0.22335772267769388, 0.6565792317435265, 0.8171355503265633),
+                 (0.6423044349219739, 0.5497680051256467, 0.9582651433656727),
+                 (0.9603888539940703, 0.3814317878772117, 0.8683117650835491)]
+
 
 def get_unit_name_by_type(utype):
     if utype == 1935:
@@ -163,6 +178,7 @@ class StarCraft2CustomEnv(MultiAgentEnv):
         window_size_y=1200,
         heuristic_ai=False,
         heuristic_rest=False,
+        pos_rotate=None,
         debug=False,
     ):
         """
@@ -244,6 +260,8 @@ class StarCraft2CustomEnv(MultiAgentEnv):
             The height of StarCraft II window size (default is 1200).
         heuristic_ai: bool, optional
             Whether or not to use a non-learning heuristic AI (default False).
+        pos_rotate: bool, optional
+            Whether to randomly rotate starting positions (defaults to provided value in scenario dict)
         debug: bool, optional
             Log messages about observations, state, actions and rewards for
             debugging purposes (default is False).
@@ -260,7 +278,7 @@ class StarCraft2CustomEnv(MultiAgentEnv):
         self.scenarios = self.scenario_dict['scenarios']
         self.max_types_and_units_scenario = self.scenario_dict['max_types_and_units_scenario']
         self.pos_ally_centered = self.scenario_dict['ally_centered']
-        self.pos_rotate = self.scenario_dict['rotate']
+        self.pos_rotate = self.scenario_dict['rotate'] if pos_rotate is None else pos_rotate
         self.pos_separation = self.scenario_dict['separation']
         self.pos_jitter = self.scenario_dict['jitter']
 
@@ -270,6 +288,8 @@ class StarCraft2CustomEnv(MultiAgentEnv):
         self.map_name = self.scenario_dict["map_name"]  # name of map file
 
         self.unit_types = set()
+        unique_allies = set()
+        unique_enemies = set()
         self.stand2cust = {}
         self._agent_race = None
         self._bot_race = None
@@ -290,7 +310,8 @@ class StarCraft2CustomEnv(MultiAgentEnv):
             elif self._agent_race != race:
                 raise ValueError("Army spec implies multiple races {}".format(ally_army))
             self.unit_types.add(stand_utype)
-        for num, u_type, pos in enemy_army:
+            unique_allies.add((u_name, cust_utype))
+        for num, u_name, pos in enemy_army:
             self.n_enemies += num
             unit_type = get_unit_type_by_name(u_name)
             race = getattr(sc_common, unit_type.__objclass__.__name__)
@@ -299,6 +320,11 @@ class StarCraft2CustomEnv(MultiAgentEnv):
             elif self._bot_race != race:
                 raise ValueError("Army spec implies multiple races {}".format(enemy_army))
             self.unit_types.add(unit_type)
+            unique_enemies.add((u_name, unit_type))
+
+        utypes = [utype for _, utype in sorted(list(unique_enemies))] + [utype for _, utype in sorted(list(unique_allies))]
+        palette = color_palette[1:1 + len(unique_enemies)] + color_palette[5:5 + len(unique_allies)]
+        self.type2color = dict(zip(utypes, palette))
 
         self.max_n_agents = self.n_agents
         self.max_n_enemies = self.n_enemies
@@ -361,11 +387,6 @@ class StarCraft2CustomEnv(MultiAgentEnv):
             self.unit_type_ids[unit_type] = i
         for standtype, custtype in self.stand2cust.items():
             self.unit_type_ids[custtype] = self.unit_type_ids[standtype]
-        # Uncomment if you're trying to evaluate 3s5z trained on standard map in this custom env
-        # self.unit_type_ids = {1941: 0,  # Custom Stalker (RL) 
-        #                       1942: 1,  # Custom Zealot (RL)
-        #                       73: 0,  # Standard Zealot (AI)
-        #                       74: 1}  # Standard Stalker (AI)
 
         self.max_reward = (
             self.max_n_enemies * self.reward_death_value + self.reward_win
@@ -411,6 +432,10 @@ class StarCraft2CustomEnv(MultiAgentEnv):
         self.stalker_id = 1941
         self.zealot_id = 1942
         self.zergling_id = 1943
+
+        # rendering stuff (lazy init)
+        self.fig = None
+        self.canvas = None
 
         # Try to avoid leaking SC2 processes on shutdown
         atexit.register(lambda: self.close())
@@ -489,15 +514,18 @@ class StarCraft2CustomEnv(MultiAgentEnv):
 
     def _calc_distance_mtx(self):
         # Calculate distances of all agents to all agents and enemies (for visibility calculations)
-        dist_mtx = 1000 * np.ones((self.n_agents, self.n_agents + self.n_enemies))
-        for i in range(self.n_agents):
+        dist_mtx = 1000 * np.ones((self.n_agents + self.n_enemies, self.n_agents + self.n_enemies))
+        for i in range(self.n_agents + self.n_enemies):
             for j in range(self.n_agents + self.n_enemies):
                 if j < i:
                     continue
                 elif j == i:
                     dist_mtx[i, j] = 0.0
                 else:
-                    unit_a = self.agents[i]
+                    if i >= self.n_agents:
+                        unit_a = self.enemies[i - self.n_agents]
+                    else:
+                        unit_a = self.agents[i]
                     if j >= self.n_agents:
                         unit_b = self.enemies[j - self.n_agents]
                     else:
@@ -1001,16 +1029,22 @@ class StarCraft2CustomEnv(MultiAgentEnv):
         """
         sight_range = np.array(
             [self.unit_sight_range(a_i)
-             for a_i in range(self.n_agents)]).reshape(-1, 1)
+             for a_i in range(self.n_agents + self.n_enemies)]).reshape(-1, 1)
         obs_mask = (self.dist_mtx > sight_range).astype(np.uint8)
-        obs_mask_padded = np.ones((self.max_n_agents,
+        obs_mask_padded = np.ones((self.max_n_agents + self.max_n_enemies,
                                    self.max_n_agents + self.max_n_enemies),
                                   dtype=np.uint8)
         obs_mask_padded[:self.n_agents,
-                        :self.n_agents] = obs_mask[:, :self.n_agents]
+                        :self.n_agents] = obs_mask[:self.n_agents, :self.n_agents]
         obs_mask_padded[:self.n_agents,
                         self.max_n_agents:self.max_n_agents + self.n_enemies] = (
-                            obs_mask[:, self.n_agents:]
+                            obs_mask[:self.n_agents, self.n_agents:]
+        )
+        obs_mask_padded[self.max_n_agents:self.max_n_agents + self.n_enemies,
+                        :self.n_agents] = obs_mask[self.n_agents:, :self.n_agents]
+        obs_mask_padded[self.max_n_agents:self.max_n_agents + self.n_enemies,
+                        self.max_n_agents:self.max_n_agents + self.n_enemies] = (
+                            obs_mask[self.n_agents:, self.n_agents:]
         )
         entity_mask = np.ones(self.max_n_agents + self.max_n_enemies,
                               dtype=np.uint8)
@@ -1025,20 +1059,20 @@ class StarCraft2CustomEnv(MultiAgentEnv):
         For decentralized execution agents should only have access to the
         entities specified by get_masks()
         """
-        all_units = list(self.agents.items()) + list(self.enemies.items())
+        all_units = list(self.agents.values()) + list(self.enemies.values())
 
         nf_entity = self.get_entity_size()
 
         center_x = self.map_x / 2
         center_y = self.map_y / 2
-        com_x = sum(unit.pos.x for u_i, unit in all_units) / len(all_units)
-        com_y = sum(unit.pos.y for u_i, unit in all_units) / len(all_units)
+        com_x = sum(unit.pos.x for unit in all_units) / len(all_units)
+        com_y = sum(unit.pos.y for unit in all_units) / len(all_units)
         max_dist_com = max(self.distance(unit.pos.x, unit.pos.y, com_x, com_y)
-                           for u_i, unit in all_units)
+                           for unit in all_units)
 
         entities = []
         avail_actions = self.get_avail_actions()
-        for u_i, unit in all_units:
+        for u_i, unit in enumerate(all_units):
             entity = np.zeros(nf_entity, dtype=np.float32)
             # entity tag
             if u_i < self.n_agents:
@@ -1046,7 +1080,7 @@ class StarCraft2CustomEnv(MultiAgentEnv):
             else:
                 tag = self.enemy_tags[u_i - self.n_agents]
             entity[tag] = 1
-            ind = self.max_n_agents + self.max_n_enemies
+            ind = self.max_n_agents + self.max_n_enemies + 2 * self.n_extra_tags
             # available actions (if user controlled entity)
             if u_i < self.n_agents:
                 for ac_i in range(self.n_actions - 2):
@@ -1524,8 +1558,79 @@ class StarCraft2CustomEnv(MultiAgentEnv):
         return self._seed
 
     def render(self):
-        """Not implemented."""
-        pass
+        """
+        Rudimentary render for non-GUI Linux versions of StarCraft.
+        For true StarCraft GUI, save replay and load it through the Mac or PC
+        version of the game. This requires the version of the game used to save
+        the replay and the version to load it to match up.
+        """
+        if self.fig is None:
+            self.fig = Figure(figsize=(15, 15), dpi=48)
+            self.canvas = FigureCanvas(self.fig)
+
+        self.fig.clear()
+        ax = self.fig.gca()
+        ax.set_xlim(0, self.map_x)
+        ax.set_ylim(0, self.map_y)
+        ax.axis('off')
+        for u in self._obs.observation.raw_data.units:
+            utype = u.unit_type
+
+            # draw unit
+            circ = plt.Circle((u.pos.x, u.pos.y), u.radius,
+                              linewidth=3, edgecolor='black',
+                              facecolor=self.type2color[utype], zorder=1.0)
+            ax.add_artist(circ)
+
+            # draw facing dir (Colossus does not have a facing dir)
+            if 'Colossus' not in get_unit_name_by_type(utype):
+                dx = np.cos(u.facing) * u.radius
+                dy = np.sin(u.facing) * u.radius
+                ax.arrow(u.pos.x, u.pos.y, dx, dy, linewidth=3)
+
+            # draw health and shield
+            health_box = plt.Rectangle((u.pos.x - u.radius, u.pos.y + u.radius), u.radius*2, 0.3,
+                                       linewidth=2, edgecolor='black', fill=False,
+                                       zorder=1.6, alpha=0.75)
+            health_fill = plt.Rectangle((u.pos.x - u.radius, u.pos.y + u.radius), u.radius*2*(u.health / u.health_max),
+                                        0.3,
+                                        facecolor='green',
+                                        zorder=1.5, alpha=0.75)
+            ax.add_artist(health_box)
+            ax.add_artist(health_fill)
+
+            if u.shield > 0:
+                shield_box = plt.Rectangle((u.pos.x - u.radius, u.pos.y + u.radius + 0.35), u.radius*2, 0.3,
+                                           linewidth=2, edgecolor='black', fill=False,
+                                           zorder=1.6, alpha=0.75)
+                shield_fill = plt.Rectangle((u.pos.x - u.radius, u.pos.y + u.radius + 0.35), u.radius*2*(u.shield / u.shield_max),
+                                            0.3,
+                                            facecolor='blue',
+                                            zorder=1.5, alpha=0.75)
+                ax.add_artist(shield_box)
+                ax.add_artist(shield_fill)
+
+            # draw attacks
+            if len(u.orders) > 0:
+                for order in u.orders:
+                    if order.ability_id == 23:
+                        cd_ratio = u.weapon_cooldown / self.unit_max_cooldown(u)
+                        targ_u = [ou for ou in self._obs.observation.raw_data.units if ou.tag == order.target_unit_tag]
+                        if len(targ_u) > 0:
+                            targ_u = targ_u[0]
+                        else:
+                            continue
+                        dx = (targ_u.pos.x - u.pos.x) * cd_ratio
+                        dy = (targ_u.pos.y - u.pos.y) * cd_ratio
+
+                        attack = plt.Line2D([u.pos.x, u.pos.x + dx], [u.pos.y, u.pos.y + dy],
+                                            color='red', linewidth=3, zorder=1.7)
+                        ax.add_artist(attack)
+
+        self.canvas.draw()       # draw the canvas, cache the renderer
+        width, height = self.fig.get_size_inches() * self.fig.get_dpi()
+        image = np.frombuffer(self.canvas.tostring_rgb(), dtype='uint8').reshape(int(height), int(width), 3)
+        return image
 
     def _kill_all_units(self):
         """Kill all units on the map."""
@@ -1619,8 +1724,8 @@ class StarCraft2CustomEnv(MultiAgentEnv):
                                             replace=False)
         else:
             self.enemy_tags = np.arange(self.n_enemies)
-            self.ally_tags = np.arange(self.max_n_enemies,
-                                       self.max_n_enemies + self.n_agents)
+            self.ally_tags = np.arange(self.max_n_enemies + self.n_extra_tags,
+                                       self.max_n_enemies + self.n_extra_tags + self.n_agents)
         ally_units = [
             unit
             for unit in self._obs.observation.raw_data.units
@@ -1666,41 +1771,7 @@ class StarCraft2CustomEnv(MultiAgentEnv):
             self.init_units(unit_override=unit_override, index=index)
             return
 
-        # self._align_units(unit_override=unit_override)
         self._init_enemy_strategy()
-
-    def _align_units(self, **kwargs):
-        """
-        Send command to move a short distance such that all units are facing
-        the same direction
-        """
-        all_units = list(self.agents.values()) + list(self.enemies.values())
-        all_units_sorted = sorted(
-            all_units,
-            key=attrgetter("pos.y"),  # move south-most units first
-            reverse=False,
-        )
-        # sc_actions = []
-        for unit in all_units_sorted:
-            cmd = r_pb.ActionRawUnitCommand(
-                ability_id=actions["move"],
-                target_world_space_pos=sc_common.Point2D(
-                    x=unit.pos.x, y=unit.pos.y - self._move_amount),
-                unit_tags=[unit.tag],
-                queue_command=False)
-            sc_action = sc_pb.Action(action_raw=r_pb.ActionRaw(unit_command=cmd))
-            # sc_actions.append(sc_action)
-
-            # Send action request
-            req_actions = sc_pb.RequestAction(actions=[sc_action])
-            step_success = self.try_controller_step(fn=lambda: self._controller.actions(req_actions),
-                                                    n_steps=self._step_mul)
-            if not step_success:
-                self.init_units(**kwargs)
-        step_success = self.try_controller_step(n_steps=self._step_mul * 3)  # give plenty of time to get in position
-        if not step_success:
-            self.init_units(**kwargs)
-        self.update_units()
 
     def _init_enemy_strategy(self):
         tags = [u.tag for u in self.enemies.values()]
@@ -1802,7 +1873,7 @@ class StarCraft2CustomEnv(MultiAgentEnv):
         }
         return stats
 
-    def get_env_info(self):
+    def get_env_info(self, args):
         if self.entity_scheme:
             env_info = {"entity_shape": self.get_entity_size(),
                         "n_actions": self.get_total_actions(),

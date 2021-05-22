@@ -113,6 +113,15 @@ map_param_registry = {
         "unit_type_bits": 2,
         "map_type": "stalkers_and_zealots",
     },
+    "5s10z": {
+        "n_agents": 15,
+        "n_enemies": 15,
+        "limit": 150,
+        "a_race": "P",
+        "b_race": "P",
+        "unit_type_bits": 2,
+        "map_type": "stalkers_and_zealots",
+    },
     "3s5z_vs_3s6z": {
         "n_agents": 8,
         "n_enemies": 9,
@@ -227,7 +236,7 @@ map_param_registry = {
 def get_smac_map_registry():
     return map_param_registry
 
-custom_maps = ["empty_passive"]
+custom_maps = ["empty_passive", "empty_aggressive", "terran_vs_terran", "5m_vs_6m_alt", "5m_vs_6m_alt1xtra"]
 
 for name in list(map_param_registry.keys()) + custom_maps:
     globals()[name] = type(name, (SMACMap,), dict(filename=name))

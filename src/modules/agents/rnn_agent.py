@@ -17,6 +17,7 @@ class RNNAgent(nn.Module):
 
     def forward(self, inputs, hidden_state):
         bs, ts, na, os = inputs.shape
+
         x = F.relu(self.fc1(inputs))
 
         h = hidden_state.reshape(-1, self.args.rnn_hidden_dim)
@@ -28,4 +29,4 @@ class RNNAgent(nn.Module):
         hs = th.stack(hs, dim=1)  # Concat over time
 
         q = self.fc2(hs)
-        return q, h
+        return q, hs

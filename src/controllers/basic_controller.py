@@ -16,11 +16,13 @@ class BasicMAC:
 
         self.hidden_states = None
 
-    def select_actions(self, ep_batch, t_ep, t_env, bs=slice(None), test_mode=False):
+    def select_actions(self, ep_batch, t_ep, t_env, bs=slice(None), test_mode=False, ret_agent_outs=False):
         # Only select actions for the selected batch elements in bs
         avail_actions = ep_batch["avail_actions"][:, t_ep]
         agent_outputs = self.forward(ep_batch, t_ep, test_mode=test_mode)
         chosen_actions = self.action_selector.select_action(agent_outputs[bs], avail_actions[bs], t_env, test_mode=test_mode)
+        if ret_agent_outs:
+            return chosen_actions, agent_outputs[bs]
         return chosen_actions
 
     def forward(self, ep_batch, t, test_mode=False, **kwargs):
@@ -105,8 +107,7 @@ class BasicMAC:
                 acs = batch["actions_onehot"][:, slice(t.start - 1, t.stop - 1)]
             inputs.append(acs)
         if self.args.obs_agent_id:
-            inputs.append(th.eye(self.n_agents, device=batch.device).view(1, 1, self.n_agents, self.n_agents).expand(bs, ts, -1, -1))
-
+            inputs.append(th.eye(self.n_agents, device=batch.device).view(1, 1, self.n_agents, self.n_agents).expand(bs, t.stop - t.start, -1, -1))
         inputs = th.cat(inputs, dim=3)
         return inputs
 

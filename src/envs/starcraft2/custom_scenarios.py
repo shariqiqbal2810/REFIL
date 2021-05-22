@@ -62,6 +62,40 @@ def symmetric_armies(army_spec, ally_centered=False,
     return scenario_dict
 
 
+def asymm_armies(army_spec, spec_delta, ally_centered=False,
+                 rotate=False, separation=10,
+                 jitter=0, episode_limit=100, map_name="empty_passive",
+                 n_extra_tags=0,
+                 rs=None):
+    if rs is None:
+        rs = RandomState()
+
+    unique_sub_teams = []
+    for unit_types, n_unit_range in army_spec:
+        unique_sub_teams.append(get_all_unique_teams(unit_types, n_unit_range[0],
+                                                     n_unit_range[1]))
+    enemy_teams = [sum(prod, []) for prod in product(*unique_sub_teams)]
+    agent_teams = [[(max(num + spec_delta.get(typ, 0), 0), typ) for num, typ in team] for team in enemy_teams]
+
+    scenarios = list(zip(agent_teams, enemy_teams))
+    # sort by number of types and total number of units
+    max_types_and_units_ag_team = sorted(agent_teams, key=lambda x: (len(x), sum(num for num, unit in x)), reverse=True)[0]
+    max_types_and_units_en_team = sorted(enemy_teams, key=lambda x: (len(x), sum(num for num, unit in x)), reverse=True)[0]
+    max_types_and_units_scenario = (max_types_and_units_ag_team,
+                                    max_types_and_units_en_team)
+
+    scenario_dict = {'scenarios': scenarios,
+                     'max_types_and_units_scenario': max_types_and_units_scenario,
+                     'ally_centered': ally_centered,
+                     'rotate': rotate,
+                     'separation': separation,
+                     'jitter': jitter,
+                     'episode_limit': episode_limit,
+                     'n_extra_tags': n_extra_tags,
+                     'map_name': map_name}
+    return scenario_dict
+
+
 """
 The function in the registry needs to return a tuple of two lists, one for the
 ally army and one for the enemy.
@@ -72,6 +106,19 @@ Currently, we only support the same number of agents and enemies each episode.
 """
 
 custom_scenario_registry = {
+  "3-8m_symmetric": partial(symmetric_armies,
+                            [(('Marine',), (3, 8))],
+                            rotate=True,
+                            ally_centered=False,
+                            separation=14,
+                            jitter=1, episode_limit=100, map_name="empty_passive"),
+  "6-11m_mandown": partial(asymm_armies,
+                          [(('Marine',), (6, 11))],
+                          {'Marine': -1},
+                          rotate=True,
+                          ally_centered=False,
+                          separation=14,
+                          jitter=1, episode_limit=100, map_name="empty_passive"),
   "3-8sz_symmetric": partial(symmetric_armies,
                              [(('Stalker', 'Zealot'), (3, 8))],
                              rotate=True,
@@ -81,6 +128,13 @@ custom_scenario_registry = {
   "3-8MMM_symmetric": partial(symmetric_armies,
                               [(('Marine', 'Marauder'), (3, 6)),
                                (('Medivac',), (0, 2))],
+                              rotate=True,
+                              ally_centered=False,
+                              separation=14,
+                              jitter=1, episode_limit=150, map_name="empty_passive"),
+  "3-8csz_symmetric": partial(symmetric_armies,
+                              [(('Stalker', 'Zealot'), (3, 6)),
+                               (('Colossus',), (0, 2))],
                               rotate=True,
                               ally_centered=False,
                               separation=14,

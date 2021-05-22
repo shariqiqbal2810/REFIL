@@ -22,8 +22,7 @@ from components.episode_buffer import ReplayBuffer
 from components.transforms import OneHot
 
 
-def run(_run, _config, _log, pymongo_client):
-
+def run(_run, _config, _log):
     # check args sanity
     _config = args_sanity_check(_config, _log)
 
@@ -43,7 +42,7 @@ def run(_run, _config, _log, pymongo_client):
     unique_token = "{}__{}".format(args.name, datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f"))
     args.unique_token = unique_token
     if args.use_tensorboard:
-        tb_logs_direc = os.path.join(dirname(dirname(abspath(__file__))), "results", "tb_logs")
+        tb_logs_direc = os.path.join(dirname(dirname(abspath(__file__))), "results", args.tb_dirname)
         tb_exp_direc = os.path.join(tb_logs_direc, "{}").format(unique_token)
         logger.setup_tb(tb_exp_direc)
 
@@ -55,11 +54,6 @@ def run(_run, _config, _log, pymongo_client):
 
     # Clean up after finishing
     print("Exiting Main")
-
-    if pymongo_client is not None:
-        print("Attempting to close mongodb client")
-        pymongo_client.close()
-        print("Mongodb client closed")
 
     print("Stopping all threads")
     for t in threading.enumerate():
@@ -101,11 +95,8 @@ def evaluate_sequential(args, runner, logger):
     if args.eval_all_scen:
         if 'sc2' in args.env:
             dict_key = 'scenarios'
-        elif 'firefighters' in args.env:
-            if args.eval_train_scen:
-                dict_key = 'train_scenarios'
-            else:
-                dict_key = 'test_scenarios'
+        else:
+            raise Exception("Environment (%s) does not incorporate multiple scenarios")
         n_scen = len(args.env_args['scenario_dict'][dict_key])
     else:
         n_scen = 1
@@ -113,7 +104,7 @@ def evaluate_sequential(args, runner, logger):
 
     for i in range(n_scen):
         run_args = {'test_mode': True, 'vid_writer': vw,
-                    'test_scen': (not args.eval_train_scen)}
+                    'test_scen': True}
         if args.eval_all_scen:
             run_args['index'] = i
         for _ in range(n_test_batches):
@@ -121,7 +112,11 @@ def evaluate_sequential(args, runner, logger):
         curr_stats = dict((k, v[-1][1]) for k, v in logger.stats.items())
         if args.eval_all_scen:
             curr_scen = args.env_args['scenario_dict'][dict_key][i]
-            scen_str = "".join(curr_scen[0])  # assumes that unique set of agents is a unique scenario
+            # assumes that unique set of agents is a unique scenario
+            if 'sc2' in args.env:
+                scen_str = "-".join("%i%s" % (count, name[:3]) for count, name in sorted(curr_scen[0], key=lambda x: x[1]))
+            else:
+                scen_str = "".join(curr_scen[0])
             res_dict[scen_str] = curr_stats
         else:
             res_dict.update(curr_stats)
@@ -147,8 +142,7 @@ def run_sequential(args, logger):
     else:
         args.entity_scheme = False
 
-    if 'sc2' or 'firefighters' in args.env:
-        # ensure same train/test split across seeds
+    if ('sc2custom' in args.env):
         rs = RandomState(0)
         args.env_args['scenario_dict'] = s_REGISTRY[args.scenario](rs=rs)
     runner = r_REGISTRY[args.runner](args=args, logger=logger)
@@ -171,19 +165,27 @@ def run_sequential(args, logger):
         groups = {
             "agents": args.n_agents
         }
+        if 'masks' in env_info:
+            # masks that identify what part of observation/state spaces correspond to each entity
+            args.obs_masks, args.state_masks = env_info['masks']
+        if 'unit_dim' in env_info:
+            args.unit_dim = env_info['unit_dim']
     else:
         args.entity_shape = env_info["entity_shape"]
         args.n_entities = env_info["n_entities"]
+        args.gt_mask_avail = env_info.get("gt_mask_avail", False)
         # Entity scheme
         scheme = {
             "entities": {"vshape": env_info["entity_shape"], "group": "entities"},
-            "obs_mask": {"vshape": env_info["n_entities"], "group": "agents", "dtype": th.uint8},
+            "obs_mask": {"vshape": env_info["n_entities"], "group": "entities", "dtype": th.uint8},
             "entity_mask": {"vshape": env_info["n_entities"], "dtype": th.uint8},
             "actions": {"vshape": (1,), "group": "agents", "dtype": th.long},
             "avail_actions": {"vshape": (env_info["n_actions"],), "group": "agents", "dtype": th.int},
             "reward": {"vshape": (1,)},
             "terminated": {"vshape": (1,), "dtype": th.uint8},
         }
+        if args.gt_mask_avail:
+            scheme["gt_mask"] = {"vshape": env_info["n_entities"], "group": "agents", "dtype": th.uint8}
         groups = {
             "agents": args.n_agents,
             "entities": args.n_entities

@@ -2,8 +2,8 @@
 
 # --- pymarl options ---
 runner: "episode" # Runs 1 env for an episode
-mac: "basic_mac" # Basic controller
-env: "firefighters" # Environment name
+mac: "entity_mac" # Basic controller
+env: "sc2custom" # Environment name
 env_args: {} # Arguments for the environment
 batch_size_run: 1 # Number of environments to run in parallel
 test_nepisode: 20 # Number of episodes to test for
@@ -27,8 +27,8 @@ save_replay: False # Saving the replay of the model loaded from checkpoint_path
 video_path: # if path provided, save a video for evaluation runs
 fps: 2 # video frames per second
 local_results_path: "results" # Path for local results
-eval_train_scen: False  # if evaluate=True, then use this to determine whether to evaluate on training or testing scenarios
-eval_all_scen: False
+tb_dirname: "tb_logs"
+eval_all_scen: False  # if True, evaluate on each separate scenario and report performance individually, otherwise randomly sample and report average performance
 eval_path: # if path provided, save evaluation results here in json form
 
 # --- RL hyperparameters ---
@@ -36,15 +36,10 @@ gamma: 0.99
 batch_size: 32 # Number of episodes to train on
 buffer_size: 32 # Size of the replay buffer
 lr: 0.0005 # Learning rate for agents
-critic_lr: 0.0005 # Learning rate for critics
-recurrent_critic: False
 optim_alpha: 0.99 # RMSProp alpha
 optim_eps: 0.00001 # RMSProp epsilon
 grad_norm_clip: 10 # Reduce magnitude of gradients above this L2 norm
-gated: False
 weight_decay: 0 # L2 penalty weight decay on agent parameters
-dropout_prob: 0 # dropout probability
-norm_layer: # type of normalization ('layernorm', 'batchnorm'), None by default
 pooling_type: # 'max' or 'mean' pooling used instead of attention if provided
 
 # --- Agent parameters ---
@@ -52,14 +47,16 @@ agent: "rnn" # Default rnn agent
 rnn_hidden_dim: 64 # Size of hidden state for default rnn agent
 obs_agent_id: True # Include the agent's one_hot id in the observation
 obs_last_action: True # Include the agent's last action (one_hot) in the observation
+# This section is for the group matching game where we know the ground truth relevant entities to each agent
+gt_obs_mask: False # Use ground-truth observation mask
+train_gt_factors: False # Train w/ imagine groups automatically set to be ground-truth
+train_rand_gt_factors: False # Train w/ randomized ground-truth factors
+test_gt_factors: False # Test w/ imagine groups automatically set to be ground-truth and measure proportion of in-group weights w/ linear mixing network
+# --- Mixing/Hypernet parameters ---
+softmax_mixing_weights: False
 
 training_iters: 1
 
 # --- Experiment running params ---
 repeat_id: 1
 label: "default_label"
-
-# --- Sacred mongodb credentials ---
-db_url:
-db_name:
-no-mongo: True

@@ -286,6 +286,9 @@ class StarCraft2Env(MultiAgentEnv):
         self._sc2_proc = None
         self._controller = None
 
+        # Qatten
+        self.unit_dim = 4 + self.shield_bits_ally + self.unit_type_bits
+
         # Try to avoid leaking SC2 processes on shutdown
         atexit.register(lambda: self.close())
 
@@ -339,7 +342,7 @@ class StarCraft2Env(MultiAgentEnv):
             np.transpose(np.array(list(map_info.terrain_height.data))
                 .reshape(self.map_x, self.map_y)), 1) / 255
 
-    def reset(self):
+    def reset(self, **kwargs):
         """Reset the environment. Required after each full episode.
         Returns initial observations and states.
         """
@@ -848,6 +851,119 @@ class StarCraft2Env(MultiAgentEnv):
         ]
         return vals
 
+    def get_obs_st_masks(self, args):
+        """
+        Returns a mask that indicates the location of information specific to
+        each agent/enemy within each agent's observation as well as the global
+        state
+        """
+        nf_al = 4 + self.unit_type_bits
+        nf_en = 4 + self.unit_type_bits
+
+        if self.obs_all_health:
+            nf_al += 1 + self.shield_bits_ally
+            nf_en += 1 + self.shield_bits_enemy
+
+        if self.obs_last_action:
+            nf_al += self.n_actions
+
+        nf_own = self.unit_type_bits
+        if self.obs_own_health:
+            nf_own += 1 + self.shield_bits_ally
+
+        move_feats_len = self.n_actions_move
+        if self.obs_pathing_grid:
+            move_feats_len += self.n_obs_pathing
+        if self.obs_terrain_height:
+            move_feats_len += self.n_obs_height
+
+        obs_size = self.get_obs_size()
+        # these next two get added in basic_controller.py but we take care of the mask here
+        if args.obs_last_action:
+            obs_size += self.n_actions
+        if args.obs_agent_id:
+            obs_size += self.n_agents
+        obs_masks = np.zeros((self.n_agents + self.n_enemies,
+                              self.n_agents,
+                              obs_size),
+                             dtype=np.float32)
+        # obs_masks[i][j] determines the indices of agent j's observations that correspond to entity i
+        for i in range(self.n_agents + self.n_enemies):
+            ally = False
+            if i < self.n_agents:
+                ally = True
+            for j in range(self.n_agents):
+                move_mask = np.zeros(move_feats_len, dtype=np.float32)
+                enemy_mask = np.zeros((self.n_enemies, nf_en), dtype=np.float32)
+                ally_mask = np.zeros((self.n_agents - 1, nf_al), dtype=np.float32)
+                own_mask = np.zeros(nf_own, dtype=np.float32)
+                last_ac_mask = np.zeros(self.n_actions)
+                agent_id_mask = np.ones(self.n_agents)  # always see agent_id
+                if i == j:
+                    move_mask[:] = 1
+                    own_mask[:] = 1
+                    last_ac_mask[:] = 1
+                else:
+                    if ally:
+                        al_ind = i if i < j else i - 1
+                        ally_mask[al_ind] = 1
+                    else:
+                        en_ind = i - self.n_agents
+                        enemy_mask[en_ind] = 1
+
+                curr_mask = np.concatenate(
+                    (
+                        move_mask.flatten(),
+                        enemy_mask.flatten(),
+                        ally_mask.flatten(),
+                        own_mask.flatten(),
+                    )
+                )
+                if args.obs_last_action:
+                    curr_mask = np.append(curr_mask, last_ac_mask)
+                if args.obs_agent_id:
+                    curr_mask = np.append(curr_mask, agent_id_mask)
+                obs_masks[i][j] = curr_mask
+
+        if self.obs_instead_of_state:
+            state_masks = obs_masks.reshape(self.n_agents + self.n_enemies, -1)
+        else:
+            nf_al = 4 + self.shield_bits_ally + self.unit_type_bits
+            nf_en = 3 + self.shield_bits_enemy + self.unit_type_bits
+
+            state_masks = np.zeros((self.n_agents + self.n_enemies,
+                                    self.get_state_size()),
+                                   dtype=np.float32)
+            for i in range(self.n_agents + self.n_enemies):
+                ally = False
+                if i < self.n_agents:
+                    ally = True
+                ally_mask = np.zeros((self.n_agents, nf_al))
+                enemy_mask = np.zeros((self.n_enemies, nf_en))
+                last_ac_mask = np.zeros_like(self.last_action)
+                ts_mask = np.ones(1)
+
+                if ally:
+                    ally_mask[i] = 1
+                    last_ac_mask[i] = 1
+                else:
+                    enemy_mask[i - self.n_agents] = 1
+
+                curr_mask = np.concatenate(
+                    (
+                        ally_mask.flatten(),
+                        enemy_mask.flatten(),
+                    )
+                )
+
+                if self.state_last_action:
+                    curr_mask = np.append(curr_mask, last_ac_mask.flatten())
+                if self.state_timestep_number:
+                    curr_mask = np.append(curr_mask, ts_mask)
+                state_masks[i] = curr_mask
+
+        return obs_masks, state_masks
+
     def get_obs_agent(self, agent_id):
         """Returns observation for agent_id.
         NOTE: Agents should have access only to their local observations
@@ -1324,13 +1440,14 @@ class StarCraft2Env(MultiAgentEnv):
                 for unit in self._obs.observation.raw_data.units
                 if unit.owner == 2
             ]
-            enemy_units_sorted = sorted(
-                enemy_units,
-                key=attrgetter("unit_type", "pos.x", "pos.y"),
-                reverse=False,
-            )
-            for i in range(len(enemy_units_sorted)):
-                self.enemies[i] = enemy_units_sorted[i]
+            # This improves performance, but leave it out for consistency w/ results in literature
+            # enemy_units = sorted(
+            #     enemy_units,
+            #     key=attrgetter("unit_type", "pos.x", "pos.y"),
+            #     reverse=False,
+            # )
+            for i in range(len(enemy_units)):
+                self.enemies[i] = enemy_units[i]
                 if self._episode_count == 0:
                     unit = self.enemies[i]
                     self.max_reward += unit.health_max + unit.shield_max

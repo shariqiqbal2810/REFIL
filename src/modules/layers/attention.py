@@ -28,9 +28,10 @@ class EntityAttentionLayer(nn.Module):
         pre_mask: Which agent-entity pairs are not available (observability and/or padding).
                   Mask out before attention.
             shape: batch_size, # of agents, # of entities
-        post_mask: Which agents are not available. Zero out their outputs to
-                   prevent gradients from flowing back.
-            shape: batch size, # of agents
+        post_mask: Which agents/entities are not available. Zero out their outputs to
+                   prevent gradients from flowing back. Shape of 2nd dim determines
+                   whether to compute queries for all entities or just agents.
+            shape: batch size, # of agents (or entities)
         ret_attn_logits: whether to return attention logits
             None: do not return
             "max": take max over heads
@@ -38,33 +39,36 @@ class EntityAttentionLayer(nn.Module):
 
         Return shape: batch size, # of agents, embedding dimension
         """
-        bs, ne, ed = entities.shape
         entities_t = entities.transpose(0, 1)
+        n_queries = post_mask.shape[1]
+        pre_mask = pre_mask[:, :n_queries]
+        ne, bs, ed = entities_t.shape
         query, key, value = self.in_trans(entities_t).chunk(3, dim=2)
 
-        query = query[:self.n_agents]
+        query = query[:n_queries]
 
-        query_spl = query.reshape(self.n_agents, bs * self.n_heads, self.head_dim).transpose(0, 1)
+        query_spl = query.reshape(n_queries, bs * self.n_heads, self.head_dim).transpose(0, 1)
         key_spl = key.reshape(ne, bs * self.n_heads, self.head_dim).permute(1, 2, 0)
         value_spl = value.reshape(ne, bs * self.n_heads, self.head_dim).transpose(0, 1)
 
         attn_logits = th.bmm(query_spl, key_spl) / self.scale_factor
         if pre_mask is not None:
             pre_mask_rep = pre_mask.repeat_interleave(self.n_heads, dim=0)
-            masked_attn_logits = attn_logits.masked_fill(pre_mask_rep, -float('Inf'))
+            masked_attn_logits = attn_logits.masked_fill(pre_mask_rep[:, :, :ne], -float('Inf'))
         attn_weights = F.softmax(masked_attn_logits, dim=2)
         # some weights might be NaN (if agent is inactive and all entities were masked)
         attn_weights = attn_weights.masked_fill(attn_weights != attn_weights, 0)
         attn_outs = th.bmm(attn_weights, value_spl)
         attn_outs = attn_outs.transpose(
-            0, 1).reshape(self.n_agents, bs, self.embed_dim).transpose(0, 1)
+            0, 1).reshape(n_queries, bs, self.embed_dim)
+        attn_outs = attn_outs.transpose(0, 1)
         attn_outs = self.out_trans(attn_outs)
         if post_mask is not None:
             attn_outs = attn_outs.masked_fill(post_mask.unsqueeze(2), 0)
         if ret_attn_logits is not None:
-            # bs * n_heads, na, ne
+            # bs * n_heads, nq, ne
             attn_logits = attn_logits.reshape(bs, self.n_heads,
-                                              self.n_agents, ne)
+                                              n_queries, ne)
             if ret_attn_logits == 'max':
                 attn_logits = attn_logits.max(dim=1)[0]
             elif ret_attn_logits == 'mean':
@@ -105,7 +109,8 @@ class EntityPoolingLayer(nn.Module):
         bs, ne, ed = entities.shape
 
         ents_trans = self.in_trans(entities)
-        
+        n_queries = post_mask.shape[1]
+        pre_mask = pre_mask[:, :n_queries]
         # duplicate all entities per agent so we can mask separately
         ents_trans_rep = ents_trans.reshape(bs, 1, ne, ed).repeat(1, self.n_agents, 1, 1)
 

@@ -58,10 +58,14 @@ class MultiAgentEnv(object):
     def save_replay(self):
         raise NotImplementedError
 
-    def get_env_info(self):
+    def get_env_info(self, args):
         env_info = {"state_shape": self.get_state_size(),
                     "obs_shape": self.get_obs_size(),
                     "n_actions": self.get_total_actions(),
                     "n_agents": self.n_agents,
                     "episode_limit": self.episode_limit}
+        if hasattr(self, 'get_obs_st_masks'):
+            env_info['masks'] = self.get_obs_st_masks(args)
+        if hasattr(self, 'unit_dim'):
+            env_info['unit_dim'] = self.unit_dim
         return env_info

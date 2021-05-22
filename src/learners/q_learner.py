@@ -2,7 +2,7 @@ import copy
 from components.episode_buffer import EpisodeBatch
 from modules.mixers.vdn import VDNMixer
 from modules.mixers.qmix import QMixer
-from modules.mixers.flex_qmix import FlexQMixer
+from modules.mixers.flex_qmix import FlexQMixer, LinearFlexQMixer
 import torch as th
 from torch.optim import RMSprop
 
@@ -26,6 +26,9 @@ class QLearner:
             elif args.mixer == "flex_qmix":
                 assert args.entity_scheme, "FlexQMixer only available with entity scheme"
                 self.mixer = FlexQMixer(args)
+            elif args.mixer == "lin_flex_qmix":
+                assert args.entity_scheme, "FlexQMixer only available with entity scheme"
+                self.mixer = LinearFlexQMixer(args)
             else:
                 raise ValueError("Mixer {} not recognised.".format(args.mixer))
             self.params += list(self.mixer.parameters())
@@ -41,7 +44,7 @@ class QLearner:
 
     def _get_mixer_ins(self, batch, repeat_batch=1):
         if not self.args.entity_scheme:
-            return (batch["state"][:, :-1].repeat(repeat_batch, 1, 1, 1),
+            return (batch["state"][:, :-1].repeat(repeat_batch, 1, 1),
                     batch["state"][:, 1:])
         else:
             entities = []
@@ -69,6 +72,8 @@ class QLearner:
         mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
         avail_actions = batch["avail_actions"]
 
+        will_log = (t_env - self.log_stats_t >= self.args.learner_log_interval)
+
         # # Calculate estimated Q-Values
         # mac_out = []
         self.mac.init_hidden(batch.batch_size)
@@ -77,22 +82,27 @@ class QLearner:
         self.mixer.train()
         self.target_mac.eval()
         self.target_mixer.eval()
-        # for t in range(batch.max_seq_length):
-        #     agent_outs = self.mac.forward(batch, t=t)
-        #     mac_out.append(agent_outs)
-        # mac_out = th.stack(mac_out, dim=1)  # Concat over time
+
         if 'imagine' in self.args.agent:
-            all_mac_out, groups = self.mac.forward(batch, t=None, imagine=True)
+            all_mac_out, groups = self.mac.forward(batch, t=None, imagine=True,
+                                                   use_gt_factors=self.args.train_gt_factors,
+                                                   use_rand_gt_factors=self.args.train_rand_gt_factors)
             # Pick the Q-Values for the actions taken by each agent
             rep_actions = actions.repeat(3, 1, 1, 1)
             all_chosen_action_qvals = th.gather(all_mac_out[:, :-1], dim=3, index=rep_actions).squeeze(3)  # Remove the last dim
 
             mac_out, moW, moI = all_mac_out.chunk(3, dim=0)
             chosen_action_qvals, caqW, caqI = all_chosen_action_qvals.chunk(3, dim=0)
-            if not self.args.mix_imagined:
-                caq_imagine = caqW + caqI
-            else:
-                caq_imagine = th.cat([caqW, caqI], dim=2)
+            caq_imagine = th.cat([caqW, caqI], dim=2)
+
+            if will_log and self.args.test_gt_factors:
+                gt_all_mac_out, gt_groups = self.mac.forward(batch, t=None, imagine=True, use_gt_factors=True)
+                # Pick the Q-Values for the actions taken by each agent
+                gt_all_chosen_action_qvals = th.gather(gt_all_mac_out[:, :-1], dim=3, index=rep_actions).squeeze(3)  # Remove the last dim
+
+                gt_mac_out, gt_moW, gt_moI = gt_all_mac_out.chunk(3, dim=0)
+                gt_chosen_action_qvals, gt_caqW, gt_caqI = gt_all_chosen_action_qvals.chunk(3, dim=0)
+                gt_caq_imagine = th.cat([gt_caqW, gt_caqI], dim=2)
         else:
             mac_out = self.mac.forward(batch, t=None)
             # Pick the Q-Values for the actions taken by each agent
@@ -120,18 +130,22 @@ class QLearner:
         # Mix
         if self.mixer is not None:
             if 'imagine' in self.args.agent:
-                if not self.args.mix_imagined:
-                    mix_ins, targ_mix_ins = self._get_mixer_ins(batch,
-                                                                repeat_batch=2)
-                    mixer_qvals = th.cat([chosen_action_qvals, caq_imagine], dim=0)
-                    chosen_action_qvals = self.mixer(mixer_qvals, mix_ins)
-                    chosen_action_qvals, caq_imagine = chosen_action_qvals.chunk(2, dim=0)
+                mix_ins, targ_mix_ins = self._get_mixer_ins(batch)
+                chosen_action_qvals = self.mixer(chosen_action_qvals,
+                                                 mix_ins)
+                # don't need last timestep
+                groups = [gr[:, :-1] for gr in groups]
+                if will_log and self.args.test_gt_factors:
+                    caq_imagine, ingroup_prop = self.mixer(
+                        caq_imagine, mix_ins,
+                        imagine_groups=groups,
+                        ret_ingroup_prop=True)
+                    gt_groups = [gr[:, :-1] for gr in gt_groups]
+                    gt_caq_imagine, gt_ingroup_prop = self.mixer(
+                        gt_caq_imagine, mix_ins,
+                        imagine_groups=gt_groups,
+                        ret_ingroup_prop=True)
                 else:
-                    mix_ins, targ_mix_ins = self._get_mixer_ins(batch)
-                    chosen_action_qvals = self.mixer(chosen_action_qvals,
-                                                     mix_ins)
-                    # don't need last timestep
-                    groups = [gr[:, :-1] for gr in groups]
                     caq_imagine = self.mixer(caq_imagine, mix_ins,
                                              imagine_groups=groups)
             else:
@@ -171,13 +185,14 @@ class QLearner:
             self.logger.log_stat("loss", loss.item(), t_env)
             if 'imagine' in self.args.agent:
                 self.logger.log_stat("im_loss", im_loss.item(), t_env)
+            if self.args.test_gt_factors:
+                self.logger.log_stat("ingroup_prop", ingroup_prop.item(), t_env)
+                self.logger.log_stat("gt_ingroup_prop", gt_ingroup_prop.item(), t_env)
             self.logger.log_stat("grad_norm", grad_norm, t_env)
             mask_elems = mask.sum().item()
             self.logger.log_stat("td_error_abs", (masked_td_error.abs().sum().item()/mask_elems), t_env)
             self.logger.log_stat("q_taken_mean", (chosen_action_qvals * mask).sum().item()/(mask_elems * self.args.n_agents), t_env)
             self.logger.log_stat("target_mean", (targets * mask).sum().item()/(mask_elems * self.args.n_agents), t_env)
-            if self.args.gated:
-                self.logger.log_stat("gate", self.mixer.gate.cpu().item(), t_env)
             if batch.max_seq_length == 2:
                 # We are in a 1-step env. Calculate the max Q-Value for logging
                 max_agent_qvals = mac_out_detach[:,0].max(dim=2, keepdim=True)[0]
@@ -197,15 +212,11 @@ class QLearner:
         if self.mixer is not None:
             self.mixer.cuda()
             self.target_mixer.cuda()
-        if hasattr(self, "imagine_mixer"):
-            self.imagine_mixer.cuda()
 
     def save_models(self, path):
         self.mac.save_models(path)
         if self.mixer is not None:
             th.save(self.mixer.state_dict(), "{}/mixer.th".format(path))
-        if hasattr(self, "imagine_mixer"):
-            th.save(self.imagine_mixer.state_dict(), "{}/imagine_mixer.th".format(path))
         th.save(self.optimiser.state_dict(), "{}/opt.th".format(path))
 
     def load_models(self, path, evaluate=False):
@@ -215,6 +226,4 @@ class QLearner:
         if not evaluate:
             if self.mixer is not None:
                 self.mixer.load_state_dict(th.load("{}/mixer.th".format(path), map_location=lambda storage, loc: storage))
-            if hasattr(self, "imagine_mixer"):
-                self.imagine_mixer.load_state_dict(th.load("{}/imagine_mixer.th".format(path), map_location=lambda storage, loc: storage))
             self.optimiser.load_state_dict(th.load("{}/opt.th".format(path), map_location=lambda storage, loc: storage))
