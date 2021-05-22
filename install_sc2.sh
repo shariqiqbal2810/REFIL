@@ -7,7 +7,7 @@ then
 fi
 
 echo "EXP_DIR: $EXP_DIR"
-cd $EXP_DIR/pymarl
+cd $EXP_DIR/REFIL
 
 mkdir 3rdparty
 cd 3rdparty

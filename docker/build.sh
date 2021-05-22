@@ -1,4 +1,4 @@
 #!/bin/bash
 
-echo 'Building Dockerfile with image name pymarl'
-docker build -t pymarl .
+echo 'Building Dockerfile with image name REFIL'
+docker build -t REFIL .

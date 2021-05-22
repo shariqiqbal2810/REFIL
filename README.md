@@ -36,11 +36,12 @@ Possible environments are:
 
 For StarCraft you need to specify the set of tasks to train on by including the parameter `scenario=<scenario_set_name>`.
 Here are the possible scenario sets:
-Included in the paper:
+
+- Included in the paper:
     - `3-8sz_symmetric`
     - `3-8MMM_symmetric`
     - `3-8csz_symmetric`
-Debugging/Additional:
+- Debugging/Additional:
     - `3-8m_symmetric`
     - `6-11m_mandown`
 

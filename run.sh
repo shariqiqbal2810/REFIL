@@ -10,6 +10,6 @@ docker run \
     --gpus '"device='$GPU'"' \
     --name $name \
     --user $(id -u) \
-    -v `pwd`:/pymarl \
-    -t pymarl \
+    -v `pwd`:/REFIL \
+    -t REFIL \
     ${@:2}

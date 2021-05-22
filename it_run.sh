@@ -12,6 +12,6 @@ docker run \
     --cap-add=SYS_PTRACE \
     --net host \
     --user $(id -u) \
-    -v `pwd`:/pymarl \
-    -it pymarl \
+    -v `pwd`:/REFIL \
+    -it REFIL \
     ${@:2}
